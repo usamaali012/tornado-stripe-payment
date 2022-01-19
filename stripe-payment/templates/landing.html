@@ -8,10 +8,10 @@
     <section>
         <div class="product">
             <div class="description">
-                <h3>Test Product</h3>
+                <h3>{{price.product.name}}</h3>
                 <hr />
                 <div>
-                    <h5> $90 </h5>
+                    <h5> ${{ price.get_display_price() }} </h5>
                     <form action="/create-checkout-session/{{price.price_id}}/" method="POST">
                         <button type="submit">Checkout</button>
                     </form>
