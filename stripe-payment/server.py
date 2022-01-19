@@ -2,7 +2,7 @@ import tornado
 from tornado.web import Application
 from tornado import ioloop
 from apis import LandingPageHandler, SuccessPageHandler, CancelPageHandler, CreateCheckoutSessionHandler,\
-    stripe_webhook, CustomPaymentHandler, StripeIntentView
+    CustomPaymentHandler, StripeIntentView, WebHookHandler #,stripe_webhook
 
 
 class MyServer(Application):
@@ -19,7 +19,8 @@ class MyServer(Application):
             (r"/create-checkout-session/(.*)", CreateCheckoutSessionHandler),
             (r"/custom-payment", CustomPaymentHandler),
             (r"/create-payment-intent/(.*)", StripeIntentView),
-            (r"/webhooks/stripe", stripe_webhook)
+            # (r"/webhooks/stripe", stripe_webhook),
+            (r"/webhooks/stripe", WebHookHandler)
         ]
 
         return handler

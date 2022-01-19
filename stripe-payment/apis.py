@@ -16,28 +16,22 @@ STRIPE_PUBLIC_KEY = "pk_test_51KGKScK5q3eJWauv7R6C9MQcuBsnV6ePkczQpG3eGpYhp5U8pN
 STRIPE_SECRET_KEY = "sk_test_51KGKScK5q3eJWauv9aeLgmvFq7Mk1CMA4YphRfCdA4NK7juaNwcGY2FvhH0IEYXMpT2JifQmmzAGmdIF6d9Hd8fx003iZuEido"
 STRIPE_WEBHOOK_SECRET = "whsec_GJq9OxxdQ1WI6Q697XYiDeYk37tUx8Bp"
 
-
 stripe.api_key = STRIPE_SECRET_KEY
-gdb = None
+
 
 class MainApiHandler(RequestHandler):
     def prepare(self):
         super().prepare()
-        self.gdb = gdb
+        self.gdb = None
         self.get_db_connection()
 
     def get_db_connection(self):
         try:
             engine = create_engine("mysql+mysqlconnector://root:1234@localhost/products")
-
-            print("Connection Established")
             if not database_exists(engine.url):
                 create_database(engine.url)
-                print("Database Created")
 
-            print("Database Exists")
             Base.metadata.create_all(engine)
-            print("Database Connected")
 
             Session = sessionmaker(bind=engine)
             self.gdb = Session()
@@ -52,6 +46,7 @@ class LandingPageHandler(MainApiHandler):
     def get(self):
         price = self.gdb.query(Price).filter(Price.product_id == 1).one_or_none()
         self.render('templates/landing.html', price=price)
+
 
 class SuccessPageHandler(RequestHandler):
     def get(self):
@@ -87,75 +82,6 @@ class CreateCheckoutSessionHandler(MainApiHandler):
         return
 
 
-def stripe_webhook(request):
-    request.url = request.uri
-    payload = (request.body, 'body')
-    sig_header = request.headers.get('Stripe-Signature')
-    event = None
-    try:
-        event = stripe.Webhook.construct_event(
-            payload[0], sig_header, STRIPE_WEBHOOK_SECRET
-        )
-    except ValueError as e:
-        # Invalid payload
-        print(':', str(e))
-        return HTTPResponse(request, 400, error=e)
-    except stripe.error.SignatureVerificationError as e:
-        # Invalid signature
-        print('Invalid signature:', str(e))
-        return HTTPResponse(request, 400, error=e)
-
-    # Handle the checkout.session.completed event
-    if event['type'] == 'checkout.session.completed':
-        print('payment completed')
-        session = event['data']['object']
-        customer_email = session["customer_details"]["email"]
-        line_items = stripe.checkout.Session.list_line_items(session["id"])
-
-        stripe_price_id = line_items["data"][0]["price"]["id"]
-
-        print(customer_email, stripe_price_id)
-
-
-        # price = gdb.query()
-        # # price = Price.objects.get(stripe_price_id=stripe_price_id)
-        # product = price.product
-
-        # send_mail(
-        #     subject="Here is your product",
-        #     message=f"Thanks for your purchase. The URL is: {product.url}",
-        #     recipient_list=[customer_email],
-        #     from_email="your@email.com"
-        # )
-
-    elif event["type"] == "payment_intent.succeeded":
-        print('payment intent')
-        intent = event['data']['object']
-
-        stripe_customer_id = intent["customer"]
-        stripe_customer = stripe.Customer.retrieve(stripe_customer_id)
-
-        customer_email = stripe_customer['email']
-
-        print(stripe_customer_id, stripe_customer, customer_email)
-
-
-        # price_id = intent["metadata"]["price_id"]
-        #
-        # price = Price.objects.get(id=price_id)
-        # product = price.product
-        #
-
-        # send_mail(
-        #     subject="Here is your product",
-        #     message=f"Thanks for your purchase. The URL is {product.url}",
-        #     recipient_list=[customer_email],
-        #     from_email="your@email.com"
-        # )
-
-    return HTTPResponse(request, 200)
-
-
 class StripeIntentView(MainApiHandler):
     def post(self, *args, **kwargs):
         try:
@@ -173,12 +99,10 @@ class StripeIntentView(MainApiHandler):
             return self.write(json.dumps({
                 'clientSecret': intent['client_secret']
             }))
-            # return {
-            #     'clientSecret': intent['client_secret']
-            # }
+
         except Exception as e:
             print('error:', str(e))
-            return json.dumps({'error': e})
+            return self.write(json.dumps({'error': e}))
 
 
 
@@ -186,3 +110,51 @@ class CustomPaymentHandler(MainApiHandler):
     def get(self):
         price = self.gdb.query(Price).filter(Price.product_id == 1).one_or_none()
         self.render('templates/custom_payment.html', public_key=STRIPE_PUBLIC_KEY, price=price)
+
+
+class WebHookHandler(MainApiHandler):
+    def post(self, *args, **kwargs):
+        self.stripe_webhook(self.request)
+
+
+    def stripe_webhook(self, request):
+        request.url = request.uri
+        payload = (request.body, 'body')
+        sig_header = request.headers.get('Stripe-Signature')
+        event = None
+        try:
+            event = stripe.Webhook.construct_event(
+                payload[0], sig_header, STRIPE_WEBHOOK_SECRET
+            )
+        except ValueError as e:
+            # Invalid payload
+            print(':', str(e))
+            return HTTPResponse(request, 400, error=e)
+        except stripe.error.SignatureVerificationError as e:
+            # Invalid signature
+            print('Invalid signature:', str(e))
+            return HTTPResponse(request, 400, error=e)
+
+        # Handle the checkout.session.completed event
+        if event['type'] == 'checkout.session.completed':
+            print('going to success page')
+            session = event['data']['object']
+            customer_email = session["customer_details"]["email"]
+            line_items = stripe.checkout.Session.list_line_items(session["id"])
+
+            stripe_price_id = line_items["data"][0]["price"]["id"]
+
+            print(customer_email, stripe_price_id)
+
+        elif event["type"] == "payment_intent.succeeded":
+            print('payment intent succeeded')
+            intent = event['data']['object']
+
+            stripe_customer_id = intent["customer"]
+            stripe_customer = stripe.Customer.retrieve(stripe_customer_id)
+
+            customer_email = stripe_customer['email']
+
+            print(stripe_customer_id, customer_email)
+
+        return HTTPResponse(request, 200)
